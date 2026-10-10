@@ -1,7 +1,7 @@
 window.DL = {
   name: "DataLaw Camera",
   short: "DataLaw",
-  version: "1.0.2",
+  version: "1.0.3",
   code: 1,
   build: "dev",
   accent: "#4C8DFF",

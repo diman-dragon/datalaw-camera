@@ -8,12 +8,36 @@ const nextFrames = () => Promise.race([new Promise((r) => requestAnimationFrame(
 const DL = window.DL || { name: 'DataLaw Camera', version: 'dev', code: 0, privacyUrl: '#' };
 
 /* ================= Диагностика и тайм-ауты (камера не должна «висеть») ================= */
+// Журнал хранится в localStorage: переживает зависание и принудительное закрытие приложения
+const DIAG_KEY = 'datalaw.diag';
 const diagLog = [];
+try {
+  const prev = JSON.parse(localStorage.getItem(DIAG_KEY) || '[]');
+  if (Array.isArray(prev) && prev.length) { diagLog.push(...prev.slice(-60), '— — — предыдущий запуск выше — — —'); }
+} catch {}
+function renderDiag() {
+  const set = (id, n) => { const el = $(id); if (el) el.textContent = diagLog.slice(-n).join('\n'); };
+  set('#diag', 120); set('#bootLog', 7); set('#errLog', 14);
+}
 function diag(msg) {
   const t = new Date().toISOString().slice(11, 19);
   diagLog.push(`${t} ${msg}`);
-  if (diagLog.length > 80) diagLog.shift();
-  const el = $('#diag'); if (el) el.textContent = diagLog.join('\n');
+  if (diagLog.length > 120) diagLog.shift();
+  try { localStorage.setItem(DIAG_KEY, JSON.stringify(diagLog.slice(-100))); } catch {}
+  renderDiag();
+}
+async function copyDiag(btn) {
+  const text = `${DL.name} ${DL.version} (${DL.code})\n${navigator.userAgent}\n` + diagLog.join('\n');
+  const mark = (ok) => {
+    if (btn) { const old = btn.dataset.t || (btn.dataset.t = btn.textContent); btn.textContent = ok ? 'Скопировано ✓' : 'Не удалось — сделайте скриншот'; setTimeout(() => { btn.textContent = old; }, 2500); }
+  };
+  try { await navigator.clipboard.writeText(text); mark(true); return; } catch {}
+  try {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0;top:0';
+    document.body.append(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove();
+    if (ok) { mark(true); return; }
+  } catch {}
+  mark(false);
 }
 window.addEventListener('error', (e) => diag('ERR ' + e.message));
 window.addEventListener('unhandledrejection', (e) => diag('REJ ' + ((e.reason && e.reason.message) || e.reason)));
@@ -191,6 +215,7 @@ function hideBoot() {
   $('#boot').classList.add('off');
 }
 function showError(msg) {
+  diag('ОШИБКА: ' + String(msg).replace(/\n/g, ' '));
   hideBoot();
   $('#errText').textContent = msg;
   $('#errSafe').hidden = !native;
@@ -203,6 +228,8 @@ function safeMode() {
 }
 $('#errBtn').onclick = () => { $('#err').classList.remove('on'); nxFailed = false; startEngine('retry'); };
 $('#errSafe').onclick = safeMode;
+$('#bootCopy').onclick = (e) => copyDiag(e.currentTarget);
+$('#errCopy').onclick = (e) => copyDiag(e.currentTarget);
 $('#bootSafe').onclick = safeMode;
 
 /* ================= Сохранение (веб-движок) ================= */
@@ -236,6 +263,7 @@ const stale = (my) => { if (my !== startToken) throw new Error('SUPERSEDED'); };
 async function startEngine(reason = '') {
   const my = ++startToken;
   starting = true;
+  diag(`v${DL.version} (${DL.code}) native=${native} cameraX=${S.nativeEngine} mode=${S.mode}`);
   diag(`startEngine(${reason}) native=${wantNative()}`);
   showBoot();
   try {
@@ -902,11 +930,7 @@ $('#sheetClose').onclick = closeOv;
 $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeOv(); });
 $('#aboutVer').textContent = `версия ${DL.version} (${DL.code})${DL.build && DL.build !== 'dev' ? '' : ' · dev'}`;
 $('#aboutPrivacy').href = DL.privacyUrl || '#';
-$('#diagCopy').onclick = async () => {
-  const text = `${DL.name} ${DL.version} (${DL.code})\n${navigator.userAgent}\n` + diagLog.join('\n');
-  try { await navigator.clipboard.writeText(text); toast('Скопировано'); }
-  catch { const r = document.createRange(); r.selectNodeContents($('#diag')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); toast('Выделено — скопируйте вручную'); }
-};
+$('#diagCopy').onclick = (e) => copyDiag(e.currentTarget);
 
 /* ================= Миниатюра / просмотр ================= */
 let vi = 0;
@@ -959,6 +983,7 @@ if (NC) { try { NC.addListener('faces', (e) => updateFaceHint(e.n)).catch(() => 
 
 /* ================= Жизненный цикл ================= */
 document.addEventListener('visibilitychange', () => {
+  diag(document.hidden ? 'приложение свёрнуто' : 'приложение развёрнуто');
   if (document.hidden) {
     burstOn = false;
     if (rec) stopRecording();
@@ -970,7 +995,7 @@ document.addEventListener('visibilitychange', () => {
 
 /* ================= Старт ================= */
 if (Saver) Saver.volumeKeys({ enabled: S.volume }).catch(() => {});
-updateTop(); syncSettingsUI();
+updateTop(); syncSettingsUI(); renderDiag();
 if (nativeCrashed) {
   diag('Прошлый запуск CameraX не завершился — включён режим совместимости');
   setTimeout(() => toast('CameraX был отключён после сбоя. Включить: Настройки', 5000), 1500);

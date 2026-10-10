@@ -202,3 +202,11 @@ html.nx video{display:none}
 .err-btns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
 .err button{padding:12px 20px;border-radius:14px;background:var(--ink);color:#fff;font-weight:700}
 .err button.alt{background:transparent;color:var(--ink);border:1.5px solid rgba(11,12,16,.35)}
+
+/* ---- журнал на экранах загрузки и ошибки ---- */
+.toast{z-index:120}
+.boot-log,.err-log{width:100%;max-width:340px;margin:0;padding:8px 10px;border-radius:10px;background:rgba(11,12,16,.07);
+  font:10.5px/1.45 ui-monospace,Menlo,monospace;text-align:left;white-space:pre-wrap;word-break:break-word;max-height:150px;overflow:auto;
+  color:#2a2e3a;user-select:text;-webkit-user-select:text}
+.boot-log:empty,.err-log:empty{display:none}
+.boot-copy{padding:8px 14px;border-radius:12px;font-size:12px;font-weight:700;color:var(--ink);border:1.5px solid rgba(11,12,16,.3);background:transparent}
