@@ -43,7 +43,13 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - uses: android-actions/setup-android@v3
+      # Android SDK уже установлен на ubuntu-latest (ANDROID_HOME). Отдельный setup-android не нужен:
+      # он пытается доустановить устаревший пакет 'tools' и падает. Только принимаем лицензии.
+      - name: Лицензии Android SDK
+        run: |
+          SDKM=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)
+          yes | "$SDKM" --licenses > /dev/null || true
+          echo "sdkmanager: $SDKM"
 
       - uses: gradle/actions/setup-gradle@v4
 
