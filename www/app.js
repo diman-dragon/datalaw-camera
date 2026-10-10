@@ -127,8 +127,8 @@ const isVideoMode = () => S.mode === 'video' || (S.mode === 'fun' && S.funVideo)
 const video = $('#video'), vf = $('#vf'), shutter = $('#shutter');
 const Cap = window.Capacitor;
 const native = !!(Cap && Cap.isNativePlatform && Cap.isNativePlatform());
-const Saver = native ? Cap.registerPlugin('MediaSaver') : null;   // запись для веб-движка
-const NC = native ? Cap.registerPlugin('NativeCamera') : null;     // CameraX
+const Saver = native && Cap ? (Cap.registerPlugin ? Cap.registerPlugin('MediaSaver') : Cap.Plugins?.MediaSaver) : null;   // запись для веб-движка
+const NC = native && Cap ? (Cap.registerPlugin ? Cap.registerPlugin('NativeCamera') : Cap.Plugins?.NativeCamera) : null;     // CameraX
 
 let NX = false;            // сейчас работает нативный движок
 let nxFailed = false;      // CameraX не удалось запустить в этой сессии
