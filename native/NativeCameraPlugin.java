@@ -20,6 +20,8 @@ import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Base64;
 import android.util.Log;
 import android.util.Range;
@@ -35,6 +37,7 @@ import androidx.camera.camera2.interop.ExperimentalCamera2Interop;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraInfo;
 import androidx.camera.core.CameraSelector;
+import androidx.camera.core.CameraState;
 import androidx.camera.core.ExposureState;
 import androidx.camera.core.FocusMeteringAction;
 import androidx.camera.core.ImageCapture;
@@ -60,6 +63,8 @@ import androidx.camera.video.VideoRecordEvent;
 import androidx.camera.view.PreviewView;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
+import androidx.lifecycle.LiveData;
+import androidx.lifecycle.Observer;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -159,8 +164,7 @@ public class NativeCameraPlugin extends Plugin {
                 f.addListener(() -> {
                     try {
                         provider = f.get();
-                        bind(mode, wantFront, res);
-                        call.resolve(caps());
+                        startBound(call, mode, wantFront, res, false);
                     } catch (Throwable t) {
                         Log.e(TAG, "bind failed", t);
                         call.reject("CameraX bind: " + t);
@@ -219,7 +223,7 @@ public class NativeCameraPlugin extends Plugin {
         }
     }
 
-    private void bind(String mode, boolean wantFront, int res) {
+    private void bind(String mode, boolean wantFront, int res, boolean safe) {
         provider.unbindAll();
         recording = null;
         front = wantFront;
@@ -247,15 +251,17 @@ public class NativeCameraPlugin extends Plugin {
             imageCapture = null;
             second = videoCapture;
         } else {
+            ResolutionSelector.Builder rsb = new ResolutionSelector.Builder()
+                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY);
+            if (!safe) {
+                rsb.setResolutionStrategy(new ResolutionStrategy(new Size(4000, 3000),
+                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER));
+            }
             imageCapture = new ImageCapture.Builder()
-                .setCaptureMode("burst".equals(mode)
-                    ? ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
-                    : ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                .setResolutionSelector(new ResolutionSelector.Builder()
-                    .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
-                    .setResolutionStrategy(new ResolutionStrategy(new Size(4000, 3000),
-                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
-                    .build())
+                .setCaptureMode(!safe && !"burst".equals(mode)
+                    ? ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
+                    : ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setResolutionSelector(rsb.build())
                 .build();
             videoCapture = null;
             second = imageCapture;
@@ -271,6 +277,72 @@ public class NativeCameraPlugin extends Plugin {
             previewView.setVisibility(View.VISIBLE);
             if (fun != null) fun.view.setVisibility(View.GONE);
             camera = provider.bindToLifecycle((LifecycleOwner) getActivity(), sel, preview, second);
+        }
+    }
+
+    /**
+     * Привязка + ожидание РЕАЛЬНОГО открытия камеры. Если камера не открылась (ошибка конфигурации потоков,
+     * «камера занята», тайм-аут 6 с) — одна повторная попытка с безопасными настройками, затем reject,
+     * после чего JS переходит на режим совместимости. Никакого вечного ожидания.
+     */
+    private void startBound(final PluginCall call, final String mode, final boolean wantFront, final int res, final boolean safe) {
+        try {
+            bind(mode, wantFront, res, safe);
+        } catch (Throwable t) {
+            Log.e(TAG, "bind failed (safe=" + safe + ")", t);
+            if (!safe) { startBound(call, mode, wantFront, res, true); return; }
+            call.reject("CameraX bind: " + t);
+            return;
+        }
+        new OpenWaiter(call, camera.getCameraInfo().getCameraState(), () -> {
+            if (!safe) startBound(call, mode, wantFront, res, true);
+            else call.reject("CameraX: камера не открылась");
+        }).begin();
+    }
+
+    private class OpenWaiter implements Observer<CameraState>, Runnable {
+        private final PluginCall call;
+        private final LiveData<CameraState> live;
+        private final Runnable onFail;
+        private final Handler h = new Handler(Looper.getMainLooper());
+        private boolean done = false;
+
+        OpenWaiter(PluginCall call, LiveData<CameraState> live, Runnable onFail) {
+            this.call = call; this.live = live; this.onFail = onFail;
+        }
+
+        void begin() {
+            live.observe((LifecycleOwner) getActivity(), this);
+            h.postDelayed(this, 6000);
+        }
+
+        @Override
+        public void onChanged(CameraState st) {
+            if (done || st == null) return;
+            if (st.getType() == CameraState.Type.OPEN) { finish(true); return; }
+            CameraState.StateError err = st.getError();
+            if (err != null) {
+                int c = err.getCode();
+                Log.w(TAG, "camera state error " + c);
+                // 4 STREAM_CONFIG, 5 CAMERA_DISABLED, 6 FATAL, 7 DO_NOT_DISTURB — ждать бессмысленно
+                if (c >= 4 && c <= 7) finish(false);
+            }
+        }
+
+        @Override
+        public void run() {
+            if (!done) { Log.w(TAG, "camera open timeout"); finish(false); }
+        }
+
+        private void finish(boolean ok) {
+            done = true;
+            h.removeCallbacks(this);
+            live.removeObserver(this);
+            if (ok) {
+                try { call.resolve(caps()); } catch (Throwable t) { call.reject("CameraX caps: " + t); }
+            } else {
+                onFail.run();
+            }
         }
     }
 

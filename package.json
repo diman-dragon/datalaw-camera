@@ -1,6 +1,6 @@
 {
   "name": "datalaw-camera",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "DataLaw Camera — камера на Capacitor 8 (CameraX, PRO-режим, портрет, эффекты)",
   "engines": { "node": ">=22" },

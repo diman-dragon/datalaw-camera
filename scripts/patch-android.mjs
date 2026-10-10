@@ -116,6 +116,8 @@ const addTop = (xml, key) => { if (!man.includes(key)) man = man.replace('</mani
 addTop('<uses-permission android:name="android.permission.CAMERA" />', 'android.permission.CAMERA');
 addTop('<uses-permission android:name="android.permission.RECORD_AUDIO" />', 'android.permission.RECORD_AUDIO');
 addTop('<uses-permission android:name="android.permission.VIBRATE" />', 'android.permission.VIBRATE');
+// WebView-режим: Capacitor запрашивает MODIFY_AUDIO_SETTINGS вместе с микрофоном; без декларации звук в видео отклоняется
+addTop('<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />', 'android.permission.MODIFY_AUDIO_SETTINGS');
 addTop('<uses-feature android:name="android.hardware.camera" android:required="false" />', 'android.hardware.camera"');
 addTop('<uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />', 'android.hardware.camera.autofocus');
 addTop('<uses-feature android:name="android.hardware.microphone" android:required="false" />', 'android.hardware.microphone');

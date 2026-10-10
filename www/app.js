@@ -3,7 +3,8 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const nextFrames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+// rAF не срабатывает, если WebView на паузе — поэтому всегда с запасным таймером, чтобы запуск не завис
+const nextFrames = () => Promise.race([new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))), new Promise((r) => setTimeout(r, 150))]);
 const DL = window.DL || { name: 'DataLaw Camera', version: 'dev', code: 0, privacyUrl: '#' };
 
 /* ================= Диагностика и тайм-ауты (камера не должна «висеть») ================= */
@@ -41,7 +42,7 @@ let saved = {};
 try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
 const S = Object.assign({
   res: 1080, aspect: '3:4', grid: true, level: true, hist: false, sound: true, volume: true,
-  maxphoto: true, mode: 'photo', filter: 0, timer: 0, nativeEngine: true, blur: 2,
+  maxphoto: true, mode: 'photo', filter: 0, timer: 0, nativeEngine: false, blur: 2,
   fx: 'bigeyes', funVideo: false, watermark: false,
 }, saved);
 S.flash = 'off'; S.facing = 'environment'; S.deviceId = null;
@@ -50,6 +51,8 @@ const persist = () => {
 };
 // если прошлый запуск CameraX не завершился (зависание/падение) — этот запуск идёт через WebView
 let nativeCrashed = false;
+// версия настроек 2: CameraX по умолчанию выключен (включается в Настройках), у всех обновившихся — тоже
+if (S.cfgVer !== 2) { S.cfgVer = 2; S.nativeEngine = false; delete S.nxPending; persist(); }
 if (S.nxPending) {
   nativeCrashed = true; S.nativeEngine = false; delete S.nxPending; persist();
 }
@@ -181,7 +184,7 @@ function showBoot(note) {
   $('#bootSafe').hidden = true;
   clearTimeout(bootT1); clearTimeout(bootT2);
   bootT1 = setTimeout(() => { $('#bootNote').textContent = 'Камера запускается дольше обычного…'; }, 4000);
-  bootT2 = setTimeout(() => { if (native) $('#bootSafe').hidden = false; }, 7000);
+  bootT2 = setTimeout(() => { if (native && wantNative()) $('#bootSafe').hidden = false; }, 7000);
 }
 function hideBoot() {
   clearTimeout(bootT1); clearTimeout(bootT2);
@@ -256,7 +259,8 @@ async function startEngine(reason = '') {
           return;
         }
         nxFailed = true;
-        toast('CameraX недоступен — включён режим совместимости', 3500);
+        S.nativeEngine = false; persist(); syncSettingsUI();   // не пытаться снова при каждом запуске
+        toast('CameraX недоступен — включён режим совместимости. Причина в Настройки → Диагностика', 4500);
         $$('[data-mode="portrait"],[data-mode="fun"]').forEach((b) => { b.hidden = true; });
         if (S.mode === 'portrait' || S.mode === 'fun') S.mode = 'photo';
         showBoot('Режим совместимости…');
@@ -309,7 +313,7 @@ async function startNative(my) {
   stale(my);
   bootNote('Открываем камеру…');
   await withTimeout(NC.funEffect({ id: S.fx }), 3000, 'funEffect').catch(() => {});
-  const r = await withTimeout(NC.start({ mode: S.mode, facing: S.facing, res: S.res, css: curCss(), ...vfRect() }), 12000, 'CameraX start');
+  const r = await withTimeout(NC.start({ mode: S.mode, facing: S.facing, res: S.res, css: curCss(), ...vfRect() }), 20000, 'CameraX start');
   stale(my);
   C = {
     zoom: r.zoomMax > r.zoomMin + 0.01 ? { min: r.zoomMin, max: r.zoomMax } : null,
@@ -386,7 +390,7 @@ function afterStart() {
 
 async function refreshDevices(curId) {
   try {
-    const all = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+    const all = (await withTimeout(navigator.mediaDevices.enumerateDevices(), 3000, 'devices')).filter((d) => d.kind === 'videoinput');
     backs = all.filter((d) => /back|rear|environment/i.test(d.label));
     if (!backs.length) backs = all.filter((d) => !/front/i.test(d.label));
     const idx = backs.findIndex((d) => d.deviceId === curId);
@@ -970,6 +974,10 @@ updateTop(); syncSettingsUI();
 if (nativeCrashed) {
   diag('Прошлый запуск CameraX не завершился — включён режим совместимости');
   setTimeout(() => toast('CameraX был отключён после сбоя. Включить: Настройки', 5000), 1500);
+}
+if (native && !S.hintShown && !nativeCrashed) {
+  S.hintShown = true; persist();
+  setTimeout(() => toast('Больше возможностей: Настройки → «Расширенный режим CameraX»', 5000), 4000);
 }
 startEngine('boot');
 })();
